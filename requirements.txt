@@ -1,0 +1,319 @@
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.express as px
+from datetime import date
+
+st.set_page_config(
+    page_title="PlacementIQ | Analytics",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# ---------- PROFESSIONAL UI ----------
+st.markdown("""
+<style>
+.stApp {background:#f4f7fb;}
+[data-testid="stSidebar"] {
+    background:#101b35;
+}
+[data-testid="stSidebar"] * {color:white !important;}
+.main-title {font-size:32px;font-weight:800;color:#14213d;}
+.sub-title {color:#64748b;font-size:14px;}
+.metric-card {
+    background:white;padding:20px;border-radius:14px;
+    border:1px solid #e5eaf2;
+}
+div[data-testid="stMetric"] {
+    background:white;padding:18px;border-radius:12px;
+    border:1px solid #e5eaf2;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ---------- SAMPLE DATA ----------
+if "students" not in st.session_state:
+    st.session_state.students = pd.DataFrame([
+        {"Student ID":f"STU{i:03d}","Department":dept,
+         "Graduation Year":2027,"Eligible":True,
+         "Status":status,"Skills":skills}
+        for i,(dept,status,skills) in enumerate([
+            ("CSE","Placed","Java, SQL, DSA"),
+            ("CSE","Placed","Python, SQL, ML"),
+            ("CSE","Not Placed","Java, DSA"),
+            ("IT","Placed","Python, SQL"),
+            ("IT","Not Placed","Java, Web Development"),
+            ("ECE","Placed","Python, Embedded Systems"),
+            ("ECE","Not Placed","C, Embedded Systems"),
+            ("AIML","Placed","Python, ML, SQL"),
+            ("AIML","Not Placed","Python, ML"),
+            ("CSE","Not Placed","Java, SQL"),
+            ("IT","Placed","Java, SQL, DSA"),
+            ("AIML","Placed","Python, ML, DSA"),
+        ],start=1)
+    ])
+
+if "placements" not in st.session_state:
+    st.session_state.placements = pd.DataFrame([
+        {"Student ID":"STU001","Company":"Google","Role":"Software Engineer","Package (LPA)":24.0,"Year":2027},
+        {"Student ID":"STU002","Company":"Microsoft","Role":"Data Analyst","Package (LPA)":18.0,"Year":2027},
+        {"Student ID":"STU004","Company":"Deloitte","Role":"Analyst","Package (LPA)":8.0,"Year":2027},
+        {"Student ID":"STU006","Company":"IBM","Role":"Software Engineer","Package (LPA)":10.0,"Year":2027},
+        {"Student ID":"STU008","Company":"Amazon","Role":"Data Engineer","Package (LPA)":16.0,"Year":2027},
+        {"Student ID":"STU011","Company":"IBM","Role":"Associate Engineer","Package (LPA)":7.0,"Year":2027},
+        {"Student ID":"STU012","Company":"Deloitte","Role":"Analyst","Package (LPA)":9.0,"Year":2027},
+    ])
+
+students = st.session_state.students
+placements = st.session_state.placements
+
+# ---------- SIDEBAR ----------
+st.sidebar.markdown("# PlacementIQ")
+st.sidebar.caption("PLACEMENT ANALYTICS PLATFORM")
+page = st.sidebar.radio(
+    "NAVIGATION",
+    ["Overview","Students","Placements","Department Analysis",
+     "Package Analytics","Skill Demand","Reports"]
+)
+st.sidebar.divider()
+st.sidebar.info("Demo mode • Fictional sample data")
+st.sidebar.caption("Package unit: INR lakhs per annum (LPA)")
+
+# ---------- HELPERS ----------
+def heading(title, subtitle):
+    st.markdown(f'<div class="main-title">{title}</div>',
+                unsafe_allow_html=True)
+    st.markdown(f'<div class="sub-title">{subtitle}</div>',
+                unsafe_allow_html=True)
+    st.write("")
+
+def download_csv(df, filename):
+    st.download_button(
+        "⬇️ Export CSV",
+        data=df.to_csv(index=False).encode("utf-8"),
+        file_name=filename,
+        mime="text/csv"
+    )
+
+eligible = students[students["Eligible"] == True]
+placed_ids = set(placements["Student ID"])
+placed_eligible = eligible[eligible["Student ID"].isin(placed_ids)]
+placement_rate = (
+    len(placed_eligible) / len(eligible) * 100 if len(eligible) else 0
+)
+avg_package = placements["Package (LPA)"].mean() if len(placements) else 0
+median_package = placements["Package (LPA)"].median() if len(placements) else 0
+
+# ---------- OVERVIEW ----------
+if page == "Overview":
+    heading("Placement Overview","Your institution's placement performance at a glance.")
+    st.caption("DEMO DATA — figures are fictional and are not actual university results.")
+
+    a,b,c,d = st.columns(4)
+    a.metric("Total Students",len(students))
+    b.metric("Eligible Students",len(eligible))
+    c.metric("Placement Rate",f"{placement_rate:.1f}%")
+    d.metric("Average Package",f"₹{avg_package:.2f} LPA")
+
+    st.write("")
+    left,right = st.columns([1.2,1])
+    with left:
+        st.subheader("Department Placement Rate")
+        dept_rows = []
+        for dept,group in students.groupby("Department"):
+            elig = group[group["Eligible"] == True]
+            count = elig[elig["Student ID"].isin(placed_ids)].shape[0]
+            rate = count / len(elig) * 100 if len(elig) else 0
+            dept_rows.append({"Department":dept,"Placement Rate (%)":rate})
+        dept_df = pd.DataFrame(dept_rows)
+        fig = px.bar(dept_df,x="Department",y="Placement Rate (%)",
+                     color="Placement Rate (%)",text_auto=".1f",
+                     color_continuous_scale="Blues")
+        fig.update_layout(showlegend=False,plot_bgcolor="white",
+                          paper_bgcolor="white")
+        st.plotly_chart(fig,use_container_width=True)
+    with right:
+        st.subheader("Package Distribution")
+        if len(placements):
+            fig = px.histogram(placements,x="Package (LPA)",nbins=8,
+                               color_discrete_sequence=["#356ae6"])
+            fig.update_layout(plot_bgcolor="white",paper_bgcolor="white")
+            st.plotly_chart(fig,use_container_width=True)
+        else:
+            st.info("No placement packages recorded yet.")
+
+    st.subheader("Recent Placement Records")
+    st.dataframe(placements.tail(5),use_container_width=True,hide_index=True)
+
+# ---------- STUDENTS ----------
+elif page == "Students":
+    heading("Student Management","View, register, and update student placement eligibility.")
+    with st.expander("＋ Add Student",expanded=False):
+        with st.form("add_student"):
+            sid = st.text_input("Student ID (unique)")
+            dept = st.selectbox("Department",["CSE","IT","ECE","AIML","EEE","MECH","CIVIL"])
+            grad = st.number_input("Graduation Year",2026,2040,2029)
+            skills = st.text_input("Skills (comma-separated)")
+            eligible_input = st.checkbox("Eligible for placement",value=True)
+            submitted = st.form_submit_button("Add Student")
+            if submitted:
+                if not sid.strip():
+                    st.error("Student ID is required.")
+                elif sid in set(st.session_state.students["Student ID"]):
+                    st.error("That Student ID already exists.")
+                else:
+                    new = pd.DataFrame([{
+                        "Student ID":sid,"Department":dept,
+                        "Graduation Year":int(grad),
+                        "Eligible":eligible_input,"Status":"Not Placed",
+                        "Skills":skills
+                    }])
+                    st.session_state.students = pd.concat(
+                        [st.session_state.students,new],ignore_index=True)
+                    st.success("Student added.")
+                    st.rerun()
+
+    search = st.text_input("Search student ID or department")
+    view = st.session_state.students.copy()
+    if search:
+        view = view[
+            view["Student ID"].str.contains(search,case=False,na=False) |
+            view["Department"].str.contains(search,case=False,na=False)
+        ]
+    st.dataframe(view,use_container_width=True,hide_index=True)
+    download_csv(view,"students_report.csv")
+
+    st.subheader("Update Student Status")
+    ids = st.session_state.students["Student ID"].tolist()
+    if ids:
+        sid = st.selectbox("Select Student",ids,key="status_sid")
+        status = st.selectbox("Placement Status",
+                              ["Not Placed","Placed","In Process","Not Eligible"])
+        if st.button("Update Status"):
+            idx = st.session_state.students.index[
+                st.session_state.students["Student ID"] == sid][0]
+            st.session_state.students.loc[idx,"Status"] = status
+            st.session_state.students.loc[idx,"Eligible"] = status != "Not Eligible"
+            st.success("Status updated.")
+            st.rerun()
+
+# ---------- PLACEMENTS ----------
+elif page == "Placements":
+    heading("Placement Records","Record company offers, job roles, packages, and placement year.")
+    with st.expander("＋ Record Placement"):
+        with st.form("add_placement"):
+            ids = st.session_state.students["Student ID"].tolist()
+            sid = st.selectbox("Student ID",ids)
+            company = st.text_input("Company")
+            role = st.text_input("Job Role")
+            package = st.number_input("Package (₹ LPA)",min_value=0.0,value=6.0,step=0.5)
+            year = st.number_input("Placement Year",2020,2040,2027)
+            submitted = st.form_submit_button("Save Placement")
+            if submitted:
+                if not company.strip() or not role.strip():
+                    st.error("Company and role are required.")
+                elif sid in set(st.session_state.placements["Student ID"]):
+                    st.error("This demo supports one placement record per student to avoid duplicate counting.")
+                else:
+                    new = pd.DataFrame([{
+                        "Student ID":sid,"Company":company,"Role":role,
+                        "Package (LPA)":package,"Year":int(year)
+                    }])
+                    st.session_state.placements = pd.concat(
+                        [st.session_state.placements,new],ignore_index=True)
+                    st.success("Placement saved.")
+                    st.rerun()
+
+    st.dataframe(st.session_state.placements,use_container_width=True,hide_index=True)
+    download_csv(st.session_state.placements,"placements_report.csv")
+
+# ---------- DEPARTMENT ANALYSIS ----------
+elif page == "Department Analysis":
+    heading("Department Analysis","Compare eligible students and placement outcomes by department.")
+    rows = []
+    for dept,group in st.session_state.students.groupby("Department"):
+        elig = group[group["Eligible"] == True]
+        count = elig[elig["Student ID"].isin(placed_ids)].shape[0]
+        rows.append({
+            "Department":dept,"Eligible Students":len(elig),
+            "Placed Students":count,
+            "Placement Rate (%)":round(count/len(elig)*100,2) if len(elig) else 0
+        })
+    result = pd.DataFrame(rows)
+    st.dataframe(result,use_container_width=True,hide_index=True)
+    fig = px.bar(result,x="Department",y="Placement Rate (%)",
+                 text_auto=".1f",color="Placement Rate (%)",
+                 color_continuous_scale="Teal")
+    st.plotly_chart(fig,use_container_width=True)
+    download_csv(result,"department_placement_report.csv")
+
+# ---------- PACKAGE ANALYTICS ----------
+elif page == "Package Analytics":
+    heading("Package Analytics","Explore salary distributions and package statistics.")
+    p = st.session_state.placements["Package (LPA)"].dropna()
+    if len(p):
+        a,b,c = st.columns(3)
+        a.metric("Average Package",f"₹{np.mean(p):.2f} LPA")
+        b.metric("Median Package",f"₹{np.median(p):.2f} LPA")
+        c.metric("Highest Package",f"₹{np.max(p):.2f} LPA")
+        fig = px.box(st.session_state.placements,y="Package (LPA)",
+                     points="all",title="Package Spread")
+        st.plotly_chart(fig,use_container_width=True)
+        fig = px.histogram(st.session_state.placements,x="Package (LPA)",
+                           nbins=10,title="Package Frequency")
+        st.plotly_chart(fig,use_container_width=True)
+        st.caption("All packages are expressed in Indian rupees lakhs per annum (LPA).")
+    else:
+        st.info("Add placement records to view package analytics.")
+
+# ---------- SKILL DEMAND ----------
+elif page == "Skill Demand":
+    heading("Skill Demand","Understand which skills appear most often in student profiles.")
+    skill_rows = []
+    for _,student in st.session_state.students.iterrows():
+        for skill in str(student["Skills"]).split(","):
+            skill = skill.strip()
+            if skill:
+                skill_rows.append({
+                    "Skill":skill,
+                    "Student ID":student["Student ID"],
+                    "Placed":student["Student ID"] in placed_ids
+                })
+    skill_df = pd.DataFrame(skill_rows)
+    if len(skill_df):
+        summary = skill_df.groupby("Skill").agg(
+            Students=("Student ID","nunique"),
+            Placed_Students=("Placed","sum")
+        ).reset_index().sort_values("Students",ascending=False)
+        st.dataframe(summary,use_container_width=True,hide_index=True)
+        fig = px.bar(summary.head(12),x="Students",y="Skill",
+                     orientation="h",text="Students",
+                     title="Most Commonly Listed Skills")
+        st.plotly_chart(fig,use_container_width=True)
+        st.caption("Skill demand here means frequency in student profiles, not verified employer demand.")
+        download_csv(summary,"skill_demand_report.csv")
+    else:
+        st.info("Add student skill profiles to analyze skills.")
+
+# ---------- REPORTS ----------
+elif page == "Reports":
+    heading("Reports & Exports","Download reports for further analysis and review.")
+    st.subheader("Placement Summary")
+    summary = pd.DataFrame([{
+        "Total Students":len(st.session_state.students),
+        "Eligible Students":len(eligible),
+        "Placed Eligible Students":len(placed_eligible),
+        "Placement Rate (%)":round(placement_rate,2),
+        "Average Package (LPA)":round(avg_package,2),
+        "Median Package (LPA)":round(median_package,2),
+        "Package Unit":"INR LPA",
+        "Denominator":"Eligible students"
+    }])
+    st.dataframe(summary,use_container_width=True,hide_index=True)
+    download_csv(summary,"placement_summary.csv")
+    st.info("Reports use fictional demo data. Student IDs are shown in management views; aggregate reports avoid personal contact details.")
+
+st.sidebar.divider()
+st.sidebar.caption("PlacementIQ • Student Placement Analytics")
