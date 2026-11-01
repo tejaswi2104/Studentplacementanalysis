@@ -1,220 +1,180 @@
 
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
-import mysql.connector
-from mysql.connector import Error
 
-# =====================================================
-# 1. PAGE CONFIGURATION
-# =====================================================
+# ---------------- PAGE CONFIG ----------------
 st.set_page_config(
-    page_title="PlacementIQ | Analytics Dashboard",
+    page_title="PlacementIQ",
     page_icon="🎓",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
-# =====================================================
-# 2. CSS STYLING - READABLE TEXT AND BUTTONS
-# =====================================================
+# ---------------- SAMPLE DATA ----------------
+def create_data():
+    rng = np.random.default_rng(42)
+
+    departments = ["CSE", "ECE", "EEE", "MECH", "CIVIL"]
+    skills_list = [
+        "Java", "Python", "SQL", "DSA",
+        "Web Development", "Machine Learning",
+        "Communication", "C++"
+    ]
+
+    students = []
+
+    for i in range(1, 101):
+        eligible = i % 10 != 0
+        placed = eligible and i % 3 != 0
+
+        students.append({
+            "student_id": i,
+            "roll_no": f"TEST{i:03}",
+            "student_name": f"Test Student {i}",
+            "department": departments[(i - 1) % 5],
+            "graduation_year": 2026,
+            "eligible": eligible,
+            "placement_status": "Placed" if placed else "Not Placed"
+        })
+
+    students_df = pd.DataFrame(students)
+
+    placements = []
+    companies = ["Example Tech A", "Example Tech B", "Example Analytics C"]
+    roles = ["Software Developer", "Analyst", "Junior Engineer"]
+
+    for _, student in students_df.iterrows():
+        if student["placement_status"] == "Placed":
+            placements.append({
+                "student_id": student["student_id"],
+                "roll_no": student["roll_no"],
+                "student_name": student["student_name"],
+                "department": student["department"],
+                "company": rng.choice(companies),
+                "role": rng.choice(roles),
+                "package_lpa": round(float(rng.uniform(3, 12)), 2),
+                "placement_year": 2026
+            })
+
+    placements_df = pd.DataFrame(placements)
+
+    student_skills = []
+
+    for student_id in students_df["student_id"]:
+        selected = rng.choice(skills_list, size=3, replace=False)
+
+        for skill in selected:
+            student_skills.append({
+                "student_id": student_id,
+                "skill_name": skill
+            })
+
+    skills_df = pd.DataFrame(student_skills)
+
+    return students_df, placements_df, skills_df
+
+
+if "students" not in st.session_state:
+    students, placements, skills = create_data()
+    st.session_state.students = students
+    st.session_state.placements = placements
+    st.session_state.skills = skills
+
+students = st.session_state.students
+placements = st.session_state.placements
+skills = st.session_state.skills
+
+# ---------------- CUSTOM STYLE ----------------
+
 st.markdown("""
 <style>
-    .stApp {
-        background-color: #f5f7fb;
-        color: #1f2937;
-    }
+/* Main background */
+.stApp,
+[data-testid="stAppViewContainer"] {
+    background-color: #f5f7fb;
+}
 
-    /* Headings */
-    .stApp h1,
-    .stApp h2,
-    .stApp h3,
-    .stApp h4 {
-        color: #1e3a8a !important;
-        font-weight: 700;
-    }
+/* Main text */
+[data-testid="stAppViewContainer"] p,
+[data-testid="stAppViewContainer"] label,
+[data-testid="stAppViewContainer"] h1,
+[data-testid="stAppViewContainer"] h2,
+[data-testid="stAppViewContainer"] h3,
+[data-testid="stAppViewContainer"] span,
+[data-testid="stAppViewContainer"] li {
+    color: #1f2937 !important;
+}
 
-    /* Main page text */
-    .stApp [data-testid="stMarkdownContainer"] p,
-    .stApp [data-testid="stMarkdownContainer"] li,
-    .stApp [data-testid="stWidgetLabel"] p,
-    .stApp label {
-        color: #1f2937;
-    }
+/* Sidebar */
+[data-testid="stSidebar"] {
+    background-color: #14213d;
+}
 
-    /* Sidebar */
-    [data-testid="stSidebar"] {
-        background-color: #111827;
-    }
+[data-testid="stSidebar"] {
+    background-color: #14213d !important;
+}
 
-    [data-testid="stSidebar"] h1,
-    [data-testid="stSidebar"] h2,
-    [data-testid="stSidebar"] h3,
-    [data-testid="stSidebar"] p,
-    [data-testid="stSidebar"] label,
-    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {
-        color: #ffffff !important;
-    }
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] span,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] h1,
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] div {
+    color: white !important;
+}
 
-    /* Input fields */
-    .stApp input,
-    .stApp textarea {
-        color: #111827 !important;
-        background-color: #ffffff !important;
-    }
+[data-testid="stSidebar"] input {
+    color: #14213d !important;
+    background-color: white !important;
+}
 
-    .stApp [data-baseweb="select"] > div {
-        background-color: #ffffff !important;
-    }
+/* Input fields */
+.stTextInput input,
+.stNumberInput input {
+    background-color: white !important;
+    color: #1f2937 !important;
+}
 
-    .stApp [data-baseweb="select"] span {
-        color: #111827 !important;
-    }
+/* Buttons */
+.stButton button {
+    background-color: #2563eb;
+    color: white !important;
+    border-radius: 8px;
+}
 
-    /* Metric cards */
-    [data-testid="stMetric"] {
-        background-color: #ffffff;
-        border: 1px solid #e2e8f0;
-        padding: 18px;
-        border-radius: 12px;
-        box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
-    }
+/* Metrics */
+[data-testid="stMetricValue"] {
+    color: #14213d !important;
+}
 
-    [data-testid="stMetricLabel"],
-    [data-testid="stMetricValue"],
-    [data-testid="stMetricDelta"] {
-        color: #111827 !important;
-    }
+/* Add, Save and Download buttons */
+.stButton > button,
+.stDownloadButton > button,
+.stFormSubmitButton > button {
+    background-color: #2563eb !important;
+    color: white !important;
+    border: 1px solid #2563eb !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+}
 
-    /* ALL BUTTONS: BLUE BACKGROUND + WHITE TEXT */
-    .stApp button,
-    .stApp button p,
-    .stApp button span,
-    .stApp button div {
-        color: #ffffff !important;
-    }
-
-    .stApp div.stButton > button,
-    .stApp div.stFormSubmitButton > button,
-    .stApp button[kind="primary"],
-    .stApp button[kind="secondary"] {
-        background-color: #2563eb !important;
-        color: #ffffff !important;
-        border: 1px solid #1d4ed8 !important;
-        border-radius: 8px !important;
-        font-weight: 700 !important;
-        padding: 10px 18px !important;
-    }
-
-    .stApp div.stButton > button:hover,
-    .stApp div.stFormSubmitButton > button:hover {
-        background-color: #1d4ed8 !important;
-        border-color: #1e40af !important;
-    }
-
-    /* Charts */
-    div[data-testid="stPlotlyChart"] {
-        background-color: #ffffff;
-        border-radius: 12px;
-        padding: 8px;
-        border: 1px solid #e2e8f0;
-    }
-
-    /* Data tables */
-    [data-testid="stDataFrame"] {
-        background-color: #ffffff;
-        border-radius: 8px;
-    }
+/* Button hover */
+.stButton > button:hover,
+.stDownloadButton > button:hover,
+.stFormSubmitButton > button:hover {
+    background-color: #1d4ed8 !important;
+    color: white !important;
+}
 </style>
+
 """, unsafe_allow_html=True)
-
-# =====================================================
-# 3. HEADER
-# =====================================================
-st.title("🎓 PlacementIQ")
-st.markdown(
-    "**STUDENT PLACEMENT DATA ANALYSIS SYSTEM**  \n"
-    "Analyze placement outcomes, package trends, departments and skills."
-)
-st.divider()
-
-# =====================================================
-# 4. DATABASE CONNECTION
-# =====================================================
+# ---------------- SIDEBAR ----------------
 st.sidebar.title("🎓 PlacementIQ")
-st.sidebar.caption("Student Placement Analytics")
-st.sidebar.divider()
-st.sidebar.subheader("Database Connection")
+st.sidebar.caption("Student Placement Data Analysis")
 
-db_user = st.sidebar.text_input("MySQL username", value="root")
-db_password = st.sidebar.text_input("MySQL password", type="password")
-
-if not db_password:
-    st.info("Enter your MySQL password in the sidebar to continue.")
-    st.stop()
-
-try:
-    conn = mysql.connector.connect(
-        host="localhost",
-        user=db_user,
-        password=db_password,
-        database="placement_db"
-    )
-    st.sidebar.success("Database connected")
-except Error as e:
-    st.error(f"Database connection failed: {e}")
-    st.stop()
-
-
-# =====================================================
-# 5. DATABASE HELPER FUNCTIONS
-# =====================================================
-def read_data(query, params=None):
-    cursor = conn.cursor(dictionary=True)
-    try:
-        cursor.execute(query, params or ())
-        return pd.DataFrame(cursor.fetchall())
-    finally:
-        cursor.close()
-
-
-def run_query(query, values=()):
-    cursor = conn.cursor()
-    try:
-        cursor.execute(query, values)
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        cursor.close()
-
-
-def get_students():
-    return read_data("""
-        SELECT student_id, roll_no, student_name, department,
-               graduation_year, eligible, placement_status
-        FROM students
-        ORDER BY student_id
-    """)
-
-
-def get_placements():
-    return read_data("""
-        SELECT p.placement_id, s.student_id, s.roll_no,
-               s.student_name, s.department, p.company, p.role,
-               p.package_lpa, p.placement_year
-        FROM placements p
-        JOIN students s ON p.student_id = s.student_id
-        ORDER BY p.placement_year DESC, p.placement_id DESC
-    """)
-
-
-# =====================================================
-# 6. SIDEBAR NAVIGATION
-# =====================================================
 page = st.sidebar.radio(
-    "📌 Navigation",
+    "Navigation",
     [
         "Overview",
         "Students",
@@ -227,900 +187,464 @@ page = st.sidebar.radio(
     ]
 )
 
-# =====================================================
-# 7. LOAD DATA AND METRICS
-# =====================================================
-try:
-    students = get_students()
-    placements = get_placements()
-except Error as e:
-    st.error(f"Could not load records: {e}")
-    st.stop()
+st.sidebar.divider()
+st.sidebar.info("Demo application using fictional sample records.")
 
-eligible_count = (
-    int(students["eligible"].astype(int).sum())
-    if not students.empty else 0
-)
+# ---------------- HEADER ----------------
+st.title("🎓 PlacementIQ")
+st.write("Student Placement Data Analysis System")
+st.divider()
 
-if not students.empty and not placements.empty:
-    eligible_ids = set(
-        students.loc[
-            students["eligible"].astype(int) == 1,
-            "student_id"
-        ].astype(int)
-    )
-    placed_ids = set(placements["student_id"].astype(int))
-    eligible_placed_count = len(eligible_ids & placed_ids)
-else:
-    eligible_placed_count = 0
+# Refresh references after session-state changes
+students = st.session_state.students
+placements = st.session_state.placements
+skills = st.session_state.skills
+
+eligible_students = students[students["eligible"] == True]
+placed_students = students[
+    (students["eligible"] == True) &
+    (students["placement_status"] == "Placed")
+]
+
+total_students = len(students)
+total_eligible = len(eligible_students)
+total_placed = len(placed_students)
 
 placement_rate = (
-    eligible_placed_count / eligible_count * 100
-    if eligible_count else 0
+    total_placed / total_eligible * 100
+    if total_eligible > 0 else 0
 )
 
-# =====================================================
-# 8. OVERVIEW
-# =====================================================
+# ---------------- OVERVIEW ----------------
 if page == "Overview":
-    st.subheader("📊 Placement Overview")
+
+    st.subheader("Placement Overview")
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total Students", len(students))
-    c2.metric("Eligible Students", eligible_count)
-    c3.metric("Eligible Students Placed", eligible_placed_count)
+
+    c1.metric("Total Students", total_students)
+    c2.metric("Eligible Students", total_eligible)
+    c3.metric("Students Placed", total_placed)
     c4.metric("Placement Rate", f"{placement_rate:.1f}%")
 
+    st.divider()
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("Placement Status")
+
+        status_data = students["placement_status"].value_counts().reset_index()
+        status_data.columns = ["Status", "Count"]
+
+        fig = px.pie(
+            status_data,
+            names="Status",
+            values="Count",
+            hole=0.4
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    with col2:
+        st.subheader("Department-wise Students")
+
+        dept_data = students.groupby("department").size().reset_index(name="Students")
+
+        fig = px.bar(
+            dept_data,
+            x="department",
+            y="Students",
+            color="department"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.subheader("Recent Placement Records")
+    st.dataframe(placements.tail(10), use_container_width=True)
+
     st.caption(
-        "Placement Rate = Eligible students with placement records "
-        "÷ Total eligible students × 100."
+        "Placement rate = Eligible students placed / Total eligible students × 100"
     )
 
-    if not students.empty:
-        dept = students.groupby("department").agg(
-            Total_Students=("student_id", "count"),
-            Eligible_Students=("eligible", "sum")
-        ).reset_index()
-
-        if not placements.empty:
-            eligible_ids = set(
-                students.loc[
-                    students["eligible"].astype(int) == 1,
-                    "student_id"
-                ].astype(int)
-            )
-            valid_placements = placements[
-                placements["student_id"].astype(int).isin(eligible_ids)
-            ]
-            placed_dept = (
-                valid_placements.groupby("department")
-                .size()
-                .reset_index(name="Placed_Students")
-            )
-        else:
-            placed_dept = pd.DataFrame(
-                columns=["department", "Placed_Students"]
-            )
-
-        dept = dept.merge(placed_dept, on="department", how="left")
-        dept["Placed_Students"] = (
-            dept["Placed_Students"].fillna(0).astype(int)
-        )
-        dept["Placement_Rate"] = (
-            dept["Placed_Students"]
-            / dept["Eligible_Students"].replace(0, float("nan"))
-            * 100
-        ).fillna(0).round(2)
-
-        left, right = st.columns(2)
-
-        with left:
-            st.plotly_chart(
-                px.bar(
-                    dept,
-                    x="department",
-                    y="Total_Students",
-                    color="department",
-                    title="Students by Department"
-                ),
-                use_container_width=True
-            )
-
-        with right:
-            st.plotly_chart(
-                px.bar(
-                    dept,
-                    x="department",
-                    y="Placement_Rate",
-                    color="department",
-                    title="Placement Rate by Department",
-                    labels={"Placement_Rate": "Placement Rate (%)"}
-                ),
-                use_container_width=True
-            )
-
-    st.subheader("🕒 Recent Placements")
-    if not placements.empty:
-        st.dataframe(
-            placements.head(10),
-            use_container_width=True,
-            hide_index=True
-        )
-    else:
-        st.info("No placement records available yet.")
-
-# =====================================================
-# 9. STUDENTS
-# =====================================================
+# ---------------- STUDENTS ----------------
 elif page == "Students":
-    st.subheader("👨‍🎓 Student Management")
 
-    with st.expander("➕ Add a Student", expanded=True):
+    st.subheader("Student Management")
+
+    with st.expander("➕ Add New Student"):
         with st.form("student_form"):
-            roll = st.text_input("Roll Number")
+            roll_no = st.text_input("Roll Number")
             name = st.text_input("Student Name")
-
-            dept_choice = st.selectbox(
+            department = st.selectbox(
                 "Department",
-                ["CSE", "ECE", "EEE", "IT", "MECH", "CIVIL", "Other"]
+                ["CSE", "ECE", "EEE", "MECH", "CIVIL"]
             )
-
-            if dept_choice == "Other":
-                department = st.text_input("Enter Department Name")
-            else:
-                department = dept_choice
-
-            graduation_year = st.number_input(
+            year = st.number_input(
                 "Graduation Year",
                 min_value=2026,
-                max_value=2040,
+                max_value=2035,
                 value=2029
             )
+            eligible = st.checkbox("Eligible for placement", value=True)
 
-            eligible = st.checkbox(
-                "Eligible for placements",
-                value=True
-            )
-
-            submitted = st.form_submit_button(
-                "Save Student",
-                type="primary",
-                use_container_width=True
-            )
+            submitted = st.form_submit_button("Add Student")
 
             if submitted:
-                if not roll.strip() or not name.strip() or not department.strip():
-                    st.error("Please fill in all required fields.")
+                if not roll_no.strip() or not name.strip():
+                    st.error("Please enter both roll number and name.")
+                elif roll_no in st.session_state.students["roll_no"].values:
+                    st.error("This roll number already exists.")
                 else:
-                    try:
-                        run_query("""
-                            INSERT INTO students
-                            (roll_no, student_name, department,
-                             graduation_year, eligible, placement_status)
-                            VALUES (%s, %s, %s, %s, %s, 'Not Placed')
-                        """, (
-                            roll.strip(),
-                            name.strip(),
-                            department.strip(),
-                            int(graduation_year),
-                            int(eligible)
-                        ))
-                        st.success("Student added successfully!")
-                        st.rerun()
-                    except Error as e:
-                        st.error(f"Could not add student: {e}")
+                    new_id = int(st.session_state.students["student_id"].max()) + 1
 
-    st.subheader("📋 Student Records")
+                    new_student = pd.DataFrame([{
+                        "student_id": new_id,
+                        "roll_no": roll_no.strip(),
+                        "student_name": name.strip(),
+                        "department": department,
+                        "graduation_year": int(year),
+                        "eligible": eligible,
+                        "placement_status": "Not Placed"
+                    }])
 
-    if not students.empty:
-        search = st.text_input("Search by roll number, name or department")
-        filtered = students
+                    st.session_state.students = pd.concat(
+                        [st.session_state.students, new_student],
+                        ignore_index=True
+                    )
 
-        if search.strip():
-            mask = students.astype(str).apply(
-                lambda col: col.str.contains(
-                    search.strip(), case=False, na=False, regex=False
-                )
-            ).any(axis=1)
-            filtered = students[mask]
+                    st.success("Student added successfully!")
+                    st.rerun()
 
-        st.dataframe(
-            filtered,
-            use_container_width=True,
-            hide_index=True
-        )
+    st.divider()
 
-        st.download_button(
-            "⬇️ Download Student CSV",
-            filtered.to_csv(index=False).encode("utf-8"),
-            "students.csv",
-            "text/csv"
-        )
-    else:
-        st.info("No student records available.")
+    search = st.text_input("Search by name or roll number")
 
-# =====================================================
-# 10. PLACEMENTS
-# =====================================================
-elif page == "Placements":
-    st.subheader("💼 Placement Management")
+    filtered = st.session_state.students.copy()
 
-    if students.empty:
-        st.warning("Add students before recording placements.")
-    else:
-        placed_ids = (
-            set(placements["student_id"].astype(int))
-            if not placements.empty else set()
-        )
-
-        eligible_students = students[
-            (students["eligible"].astype(int) == 1)
-            & (~students["student_id"].astype(int).isin(placed_ids))
+    if search:
+        filtered = filtered[
+            filtered["student_name"].str.contains(search, case=False, na=False) |
+            filtered["roll_no"].str.contains(search, case=False, na=False)
         ]
 
-        if eligible_students.empty:
-            st.info("No eligible unplaced students are available.")
-        else:
-            with st.form("placement_form"):
-                student_map = {
-                    f"{r.roll_no} — {r.student_name} ({r.department})":
-                    int(r.student_id)
-                    for r in eligible_students.itertuples()
-                }
+    st.dataframe(filtered, use_container_width=True)
 
-                selected = st.selectbox(
-                    "Select Student", list(student_map.keys())
+    st.download_button(
+        "Download Student Data",
+        filtered.to_csv(index=False),
+        "students.csv",
+        "text/csv"
+    )
+
+# ---------------- PLACEMENTS ----------------
+elif page == "Placements":
+
+    st.subheader("Placement Management")
+
+    available = st.session_state.students[
+        (st.session_state.students["eligible"] == True) &
+        (~st.session_state.students["student_id"].isin(
+            st.session_state.placements["student_id"]
+        ))
+    ]
+
+    if len(available) > 0:
+        with st.expander("➕ Add Placement Record"):
+            with st.form("placement_form"):
+                student_id = st.selectbox(
+                    "Select Student",
+                    available["student_id"].tolist(),
+                    format_func=lambda x: (
+                        available.loc[
+                            available["student_id"] == x, "student_name"
+                        ].iloc[0]
+                        + " (" +
+                        available.loc[
+                            available["student_id"] == x, "roll_no"
+                        ].iloc[0] + ")"
+                    )
                 )
+
                 company = st.text_input("Company Name")
                 role = st.text_input("Job Role")
-
                 package = st.number_input(
                     "Package (LPA)",
-                    min_value=0.01,
-                    max_value=1000.0,
-                    value=6.0,
-                    step=0.5
+                    min_value=0.1,
+                    max_value=100.0,
+                    value=5.0
                 )
-
                 year = st.number_input(
                     "Placement Year",
-                    min_value=2020,
-                    max_value=2040,
+                    min_value=2026,
+                    max_value=2035,
                     value=2026
                 )
 
-                submitted = st.form_submit_button(
-                    "Save Placement",
-                    type="primary",
-                    use_container_width=True
-                )
+                submitted = st.form_submit_button("Save Placement")
 
                 if submitted:
                     if not company.strip() or not role.strip():
-                        st.error("Enter the company name and job role.")
+                        st.error("Enter company and job role.")
                     else:
-                        cursor = None
-                        try:
-                            cursor = conn.cursor()
-                            sid = student_map[selected]
+                        student = st.session_state.students[
+                            st.session_state.students["student_id"] == student_id
+                        ].iloc[0]
 
-                            cursor.execute("""
-                                INSERT INTO placements
-                                (student_id, company, role,
-                                 package_lpa, placement_year)
-                                VALUES (%s, %s, %s, %s, %s)
-                            """, (
-                                sid, company.strip(), role.strip(),
-                                float(package), int(year)
-                            ))
+                        new_placement = pd.DataFrame([{
+                            "student_id": student_id,
+                            "roll_no": student["roll_no"],
+                            "student_name": student["student_name"],
+                            "department": student["department"],
+                            "company": company.strip(),
+                            "role": role.strip(),
+                            "package_lpa": package,
+                            "placement_year": int(year)
+                        }])
 
-                            cursor.execute("""
-                                UPDATE students
-                                SET placement_status = 'Placed'
-                                WHERE student_id = %s
-                            """, (sid,))
+                        st.session_state.placements = pd.concat(
+                            [st.session_state.placements, new_placement],
+                            ignore_index=True
+                        )
 
-                            conn.commit()
-                            st.success("Placement saved successfully!")
-                            st.rerun()
-                        except Error as e:
-                            conn.rollback()
-                            st.error(f"Could not save placement: {e}")
-                        finally:
-                            if cursor is not None:
-                                cursor.close()
+                        st.session_state.students.loc[
+                            st.session_state.students["student_id"] == student_id,
+                            "placement_status"
+                        ] = "Placed"
 
-    st.subheader("📋 Placement Records")
-    if not placements.empty:
-        st.dataframe(
-            placements,
-            use_container_width=True,
-            hide_index=True
+                        st.success("Placement record added!")
+                        st.rerun()
+    else:
+        st.info("No eligible, unplaced students are currently available.")
+
+    st.divider()
+    st.dataframe(st.session_state.placements, use_container_width=True)
+
+    st.download_button(
+        "Download Placement Data",
+        st.session_state.placements.to_csv(index=False),
+        "placements.csv",
+        "text/csv"
+    )
+
+# ---------------- DEPARTMENT ANALYSIS ----------------
+elif page == "Department Analysis":
+
+    st.subheader("Department-wise Placement Analysis")
+
+    department_data = st.session_state.students.groupby("department").agg(
+        total_students=("student_id", "count"),
+        eligible_students=("eligible", "sum")
+    ).reset_index()
+
+    placed_data = (
+        st.session_state.students[
+            (st.session_state.students["eligible"] == True) &
+            (st.session_state.students["placement_status"] == "Placed")
+        ]
+        .groupby("department")
+        .size()
+        .reset_index(name="placed_students")
+    )
+
+    department_data = department_data.merge(
+        placed_data, on="department", how="left"
+    )
+
+    department_data["placed_students"] = (
+        department_data["placed_students"].fillna(0)
+    )
+
+    department_data["placement_rate"] = (
+        department_data["placed_students"] /
+        department_data["eligible_students"].replace(0, np.nan) * 100
+    ).fillna(0)
+
+    st.dataframe(department_data, use_container_width=True)
+
+    fig = px.bar(
+        department_data,
+        x="department",
+        y="placement_rate",
+        color="department",
+        title="Department-wise Placement Rate (%)"
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+# ---------------- PACKAGE ANALYTICS ----------------
+elif page == "Package Analytics":
+
+    st.subheader("Package Distribution Analysis")
+
+    data = st.session_state.placements
+
+    if len(data) > 0:
+        c1, c2, c3 = st.columns(3)
+
+        c1.metric("Average Package", f"{data['package_lpa'].mean():.2f} LPA")
+        c2.metric("Median Package", f"{data['package_lpa'].median():.2f} LPA")
+        c3.metric("Highest Package", f"{data['package_lpa'].max():.2f} LPA")
+
+        fig = px.histogram(
+            data,
+            x="package_lpa",
+            nbins=10,
+            title="Package Distribution"
         )
+        st.plotly_chart(fig, use_container_width=True)
+
+        company_data = data.groupby("company")["package_lpa"].mean().reset_index()
+
+        fig = px.bar(
+            company_data,
+            x="company",
+            y="package_lpa",
+            title="Average Package by Company"
+        )
+        st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("No placement records available.")
 
-# =====================================================
-# 11. DEPARTMENT ANALYSIS
-# =====================================================
-elif page == "Department Analysis":
-    st.subheader("🏢 Department-wise Analysis")
-
-    if students.empty:
-        st.info("Add student records to view department analysis.")
-    else:
-        dept = students.groupby("department").agg(
-            Total_Students=("student_id", "count"),
-            Eligible_Students=("eligible", "sum")
-        ).reset_index()
-
-        if not placements.empty:
-            eligible_ids = set(
-                students.loc[
-                    students["eligible"].astype(int) == 1,
-                    "student_id"
-                ].astype(int)
-            )
-            valid = placements[
-                placements["student_id"].astype(int).isin(eligible_ids)
-            ]
-            placed = (
-                valid.groupby("department")
-                .size()
-                .reset_index(name="Placed_Students")
-            )
-        else:
-            placed = pd.DataFrame(
-                columns=["department", "Placed_Students"]
-            )
-
-        dept = dept.merge(placed, on="department", how="left")
-        dept["Placed_Students"] = (
-            dept["Placed_Students"].fillna(0).astype(int)
-        )
-        dept["Placement_Rate_%"] = (
-            dept["Placed_Students"]
-            / dept["Eligible_Students"].replace(0, float("nan"))
-            * 100
-        ).fillna(0).round(2)
-
-        st.dataframe(
-            dept,
-            use_container_width=True,
-            hide_index=True
-        )
-
-        st.plotly_chart(
-            px.bar(
-                dept,
-                x="department",
-                y="Placement_Rate_%",
-                color="department",
-                title="Placement Rate by Department"
-            ),
-            use_container_width=True
-        )
-
-        comparison = dept.melt(
-            id_vars="department",
-            value_vars=["Eligible_Students", "Placed_Students"],
-            var_name="Student Category",
-            value_name="Number of Students"
-        )
-
-        st.plotly_chart(
-            px.bar(
-                comparison,
-                x="department",
-                y="Number of Students",
-                color="Student Category",
-                barmode="group",
-                title="Eligible vs Placed Students"
-            ),
-            use_container_width=True
-        )
-
-# =====================================================
-# 12. PACKAGE ANALYTICS
-# =====================================================
-elif page == "Package Analytics":
-    st.subheader("💰 Package Analytics")
-
-    if placements.empty:
-        st.info("Record placements to view package analytics.")
-    else:
-        packages = pd.to_numeric(
-            placements["package_lpa"], errors="coerce"
-        ).dropna()
-
-        if packages.empty:
-            st.info("No valid package values available.")
-        else:
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Average Package", f"{packages.mean():.2f} LPA")
-            c2.metric("Median Package", f"{packages.median():.2f} LPA")
-            c3.metric("Highest Package", f"{packages.max():.2f} LPA")
-
-            st.plotly_chart(
-                px.histogram(
-                    placements,
-                    x="package_lpa",
-                    nbins=10,
-                    title="Package Distribution",
-                    labels={"package_lpa": "Package (LPA)"}
-                ),
-                use_container_width=True
-            )
-
-            company_summary = (
-                placements.groupby("company")
-                .agg(
-                    Average_Package=("package_lpa", "mean"),
-                    Highest_Package=("package_lpa", "max"),
-                    Students_Placed=("student_id", "nunique")
-                )
-                .reset_index()
-                .round(2)
-            )
-
-            st.plotly_chart(
-                px.bar(
-                    company_summary,
-                    x="company",
-                    y="Average_Package",
-                    title="Average Package by Company",
-                    hover_data=["Highest_Package", "Students_Placed"]
-                ),
-                use_container_width=True
-            )
-
-            st.subheader("Package Statistics")
-            stats = pd.DataFrame({
-                "Metric": ["Mean", "Median", "Minimum", "Maximum"],
-                "Package (LPA)": [
-                    packages.mean(),
-                    packages.median(),
-                    packages.min(),
-                    packages.max()
-                ]
-            }).round(2)
-
-            st.dataframe(stats, use_container_width=True, hide_index=True)
-
-# =====================================================
-# 13. SKILL DEMAND
-# =====================================================
+# ---------------- SKILL DEMAND ----------------
 elif page == "Skill Demand":
-    st.subheader("🧠 Skill Management and Demand")
 
-    with st.form("skill_form"):
-        skill_name = st.text_input("Skill Name (e.g. Java, SQL, Python)")
-        skill_submit = st.form_submit_button(
-            "Save Skill",
-            type="primary"
-        )
+    st.subheader("Student Skill Analysis")
 
-        if skill_submit:
-            if skill_name.strip():
-                try:
-                    run_query(
-                        "INSERT INTO skills (skill_name) VALUES (%s)",
-                        (skill_name.strip(),)
-                    )
-                    st.success("Skill added successfully!")
-                    st.rerun()
-                except Error as e:
-                    st.error(f"Could not add skill: {e}")
-            else:
-                st.error("Enter a skill name.")
-
-    skills = read_data("""
-        SELECT skill_id, skill_name
-        FROM skills
-        ORDER BY skill_name
-    """)
-
-    if not students.empty and not skills.empty:
-        with st.form("student_skill_form"):
-            student_map = {
-                f"{r.roll_no} — {r.student_name}": int(r.student_id)
-                for r in students.itertuples()
-            }
-
-            selected_student = st.selectbox(
-                "Select Student", list(student_map.keys())
-            )
-            selected_skill = st.selectbox(
-                "Select Skill", skills["skill_name"].tolist()
-            )
-
-            assign_submit = st.form_submit_button(
-                "Assign Skill",
-                type="primary"
-            )
-
-            if assign_submit:
-                sid = student_map[selected_student]
-                kid = int(
-                    skills.loc[
-                        skills["skill_name"] == selected_skill,
-                        "skill_id"
-                    ].iloc[0]
-                )
-
-                try:
-                    run_query("""
-                        INSERT INTO student_skills (student_id, skill_id)
-                        VALUES (%s, %s)
-                    """, (sid, kid))
-                    st.success("Skill assigned successfully!")
-                    st.rerun()
-                except Error as e:
-                    st.error(f"Could not assign skill: {e}")
-
-    elif students.empty:
-        st.info("Add students before assigning skills.")
-    else:
-        st.info("Add skills before assigning them.")
-
-    demand = read_data("""
-        SELECT sk.skill_name,
-               COUNT(DISTINCT ss.student_id) AS students_with_skill
-        FROM skills sk
-        LEFT JOIN student_skills ss ON sk.skill_id = ss.skill_id
-        GROUP BY sk.skill_id, sk.skill_name
-        ORDER BY students_with_skill DESC, sk.skill_name
-    """)
-
-    st.subheader("📈 Skills Report")
     st.caption(
-        "This chart counts skills reported by students; "
-        "it does not independently measure employer demand."
+        "This page measures skills listed in student profiles, "
+        "not verified employer demand."
     )
 
-    if not demand.empty:
-        st.dataframe(
-            demand,
-            use_container_width=True,
-            hide_index=True
-        )
+    skill_counts = (
+        st.session_state.skills["skill_name"]
+        .value_counts()
+        .reset_index()
+    )
 
-        st.plotly_chart(
-            px.bar(
-                demand,
-                x="skill_name",
-                y="students_with_skill",
-                title="Skills Reported by Students"
-            ),
-            use_container_width=True
-        )
+    skill_counts.columns = ["Skill", "Student Count"]
 
-# =====================================================
-# 14. DATA IMPORT
-# =====================================================
+    fig = px.bar(
+        skill_counts,
+        x="Skill",
+        y="Student Count",
+        color="Skill",
+        title="Skills Across Student Profiles"
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+    st.dataframe(skill_counts, use_container_width=True)
+
+    with st.expander("➕ Add a Skill to a Student"):
+        student_options = st.session_state.students["student_id"].tolist()
+
+        with st.form("skill_form"):
+            selected_student = st.selectbox(
+                "Student ID",
+                student_options
+            )
+
+            skill_name = st.text_input("Skill Name")
+            submitted = st.form_submit_button("Add Skill")
+
+            if submitted:
+                if not skill_name.strip():
+                    st.error("Enter a skill name.")
+                elif (
+                    (st.session_state.skills["student_id"] == selected_student) &
+                    (st.session_state.skills["skill_name"].str.lower() == skill_name.strip().lower())
+                ).any():
+                    st.warning("This student already has this skill.")
+                else:
+                    new_skill = pd.DataFrame([{
+                        "student_id": selected_student,
+                        "skill_name": skill_name.strip()
+                    }])
+
+                    st.session_state.skills = pd.concat(
+                        [st.session_state.skills, new_skill],
+                        ignore_index=True
+                    )
+
+                    st.success("Skill added!")
+                    st.rerun()
+
+# ---------------- DATA IMPORT ----------------
 elif page == "Data Import":
-    st.subheader("📂 Bulk CSV Data Import")
 
-    st.info(
-        "Upload approved or synthetic data. Existing records are not "
-        "automatically deleted. Back up your database before bulk importing."
+    st.subheader("Import Student CSV")
+
+    st.write("Upload a CSV file to preview its contents.")
+
+    uploaded_file = st.file_uploader(
+        "Choose student CSV file",
+        type=["csv"]
     )
 
-    with st.expander("Required CSV columns"):
-        st.code(
-            "Students:\n"
-            "roll_no,student_name,department,graduation_year,eligible,placement_status\n\n"
-            "Skills:\n"
-            "skill_name\n\n"
-            "Student Skills:\n"
-            "roll_no,skill_name\n\n"
-            "Placements:\n"
-            "roll_no,company,role,package_lpa,placement_year",
-            language="text"
-        )
-
-    students_file = st.file_uploader(
-        "1. Students CSV", type=["csv"], key="csv_students"
-    )
-    skills_file = st.file_uploader(
-        "2. Skills CSV", type=["csv"], key="csv_skills"
-    )
-    mappings_file = st.file_uploader(
-        "3. Student Skills CSV", type=["csv"], key="csv_mappings"
-    )
-    placements_file = st.file_uploader(
-        "4. Placements CSV", type=["csv"], key="csv_placements"
-    )
-
-    if st.button("Import Selected Files", type="primary"):
-        cursor = None
-
+    if uploaded_file is not None:
         try:
-            frames = {}
-            specifications = {
-                "students": (
-                    students_file,
-                    {
-                        "roll_no", "student_name", "department",
-                        "graduation_year", "eligible", "placement_status"
-                    }
-                ),
-                "skills": (skills_file, {"skill_name"}),
-                "mappings": (mappings_file, {"roll_no", "skill_name"}),
-                "placements": (
-                    placements_file,
-                    {
-                        "roll_no", "company", "role",
-                        "package_lpa", "placement_year"
-                    }
-                )
-            }
+            imported_data = pd.read_csv(uploaded_file)
 
-            for name, (uploaded, required) in specifications.items():
-                if uploaded is None:
-                    continue
+            st.success("CSV uploaded successfully!")
+            st.write("Preview:")
+            st.dataframe(imported_data, use_container_width=True)
 
-                df = pd.read_csv(uploaded, dtype={"roll_no": str})
-                df.columns = df.columns.str.strip()
-                missing = required - set(df.columns)
-
-                if missing:
-                    raise ValueError(
-                        f"{name} CSV missing columns: "
-                        f"{', '.join(sorted(missing))}"
-                    )
-
-                if df.empty:
-                    raise ValueError(f"{name} CSV contains no records.")
-
-                if df[list(required)].isnull().any().any():
-                    raise ValueError(
-                        f"{name} CSV contains empty required values."
-                    )
-
-                frames[name] = df
-
-            if not frames:
-                raise ValueError("Select at least one CSV file.")
-
-            conn.start_transaction()
-            cursor = conn.cursor()
-
-            # Students
-            if "students" in frames:
-                df = frames["students"]
-
-                if df["roll_no"].astype(str).str.strip().duplicated().any():
-                    raise ValueError("Duplicate roll numbers in students CSV.")
-
-                for _, r in df.iterrows():
-                    eligible_text = str(r["eligible"]).strip().lower()
-
-                    if eligible_text not in (
-                        "0", "1", "true", "false", "yes", "no"
-                    ):
-                        raise ValueError(
-                            f"Invalid eligibility for {r['roll_no']}."
-                        )
-
-                    eligible_value = int(
-                        eligible_text in ("1", "true", "yes")
-                    )
-
-                    cursor.execute("""
-                        INSERT INTO students
-                        (roll_no, student_name, department,
-                         graduation_year, eligible, placement_status)
-                        VALUES (%s, %s, %s, %s, %s, %s)
-                        ON DUPLICATE KEY UPDATE
-                            student_name = VALUES(student_name),
-                            department = VALUES(department),
-                            graduation_year = VALUES(graduation_year),
-                            eligible = VALUES(eligible)
-                    """, (
-                        str(r["roll_no"]).strip(),
-                        str(r["student_name"]).strip(),
-                        str(r["department"]).strip(),
-                        int(r["graduation_year"]),
-                        eligible_value,
-                        str(r["placement_status"]).strip()
-                    ))
-
-            # Skills
-            if "skills" in frames:
-                for _, r in frames["skills"].iterrows():
-                    cursor.execute("""
-                        INSERT IGNORE INTO skills (skill_name)
-                        VALUES (%s)
-                    """, (str(r["skill_name"]).strip(),))
-
-            # Student skills
-            if "mappings" in frames:
-                for _, r in frames["mappings"].iterrows():
-                    roll = str(r["roll_no"]).strip()
-                    skill = str(r["skill_name"]).strip()
-
-                    cursor.execute(
-                        "SELECT student_id FROM students WHERE roll_no=%s",
-                        (roll,)
-                    )
-                    student_row = cursor.fetchone()
-
-                    cursor.execute(
-                        "SELECT skill_id FROM skills WHERE skill_name=%s",
-                        (skill,)
-                    )
-                    skill_row = cursor.fetchone()
-
-                    if not student_row or not skill_row:
-                        raise ValueError(
-                            f"Student '{roll}' or skill '{skill}' not found. "
-                            "Import students and skills first."
-                        )
-
-                    cursor.execute("""
-                        INSERT IGNORE INTO student_skills
-                        (student_id, skill_id)
-                        VALUES (%s, %s)
-                    """, (student_row[0], skill_row[0]))
-
-            # Placements
-            if "placements" in frames:
-                df = frames["placements"]
-
-                if df["roll_no"].astype(str).str.strip().duplicated().any():
-                    raise ValueError(
-                        "Only one placement per student is supported."
-                    )
-
-                for _, r in df.iterrows():
-                    package = pd.to_numeric(r["package_lpa"], errors="coerce")
-                    year = pd.to_numeric(r["placement_year"], errors="coerce")
-
-                    if pd.isna(package) or package <= 0:
-                        raise ValueError("Package must be a positive number.")
-
-                    if pd.isna(year) or int(year) != year:
-                        raise ValueError("Placement year must be a whole number.")
-
-                    cursor.execute("""
-                        SELECT student_id, eligible
-                        FROM students WHERE roll_no=%s
-                    """, (str(r["roll_no"]).strip(),))
-                    student_row = cursor.fetchone()
-
-                    if not student_row:
-                        raise ValueError(
-                            f"Student '{r['roll_no']}' not found."
-                        )
-
-                    if not int(student_row[1]):
-                        raise ValueError(
-                            f"Student '{r['roll_no']}' is not eligible."
-                        )
-
-                    cursor.execute("""
-                        INSERT INTO placements
-                        (student_id, company, role, package_lpa, placement_year)
-                        VALUES (%s, %s, %s, %s, %s)
-                        ON DUPLICATE KEY UPDATE
-                            company = VALUES(company),
-                            role = VALUES(role),
-                            package_lpa = VALUES(package_lpa),
-                            placement_year = VALUES(placement_year)
-                    """, (
-                        student_row[0],
-                        str(r["company"]).strip(),
-                        str(r["role"]).strip(),
-                        float(package),
-                        int(year)
-                    ))
-
-            # Synchronize status with placement records
-            cursor.execute("""
-                UPDATE students s
-                LEFT JOIN placements p ON s.student_id = p.student_id
-                SET s.placement_status =
-                    CASE
-                        WHEN p.placement_id IS NULL THEN 'Not Placed'
-                        ELSE 'Placed'
-                    END
-            """)
-
-            conn.commit()
-            cursor.close()
-            cursor = None
-
-            st.success("CSV import completed successfully!")
-            st.rerun()
+            st.info(
+                "This is a preview only. The uploaded CSV is not permanently "
+                "stored in the application."
+            )
 
         except Exception as e:
-            conn.rollback()
+            st.error(f"Unable to read CSV: {e}")
 
-            if cursor is not None:
-                cursor.close()
-
-            st.error(f"Import failed: {e}")
-
-# =====================================================
-# 15. REPORTS
-# =====================================================
+# ---------------- REPORTS ----------------
 elif page == "Reports":
-    st.subheader("📑 Reports and Downloads")
 
-    st.write(
-        "Placement rate = eligible students with placement records "
-        "÷ all eligible students × 100."
-    )
-    st.caption("Package values are measured in lakhs per annum (LPA).")
+    st.subheader("Placement Reports")
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Total Students", len(students))
-    c2.metric("Placement Records", len(placements))
-    c3.metric("Placement Rate", f"{placement_rate:.1f}%")
-
-    st.subheader("Download Reports")
+    st.write("Download reports generated from the current application data.")
 
     st.download_button(
-        "⬇️ Download Student Report",
-        students.to_csv(index=False).encode("utf-8"),
-        "student_report.csv",
+        "Download Students Report",
+        st.session_state.students.to_csv(index=False),
+        "students_report.csv",
         "text/csv"
     )
 
     st.download_button(
-        "⬇️ Download Placement Report",
-        placements.to_csv(index=False).encode("utf-8"),
-        "placement_report.csv",
+        "Download Placements Report",
+        st.session_state.placements.to_csv(index=False),
+        "placements_report.csv",
         "text/csv"
     )
-
-    skills_report = read_data("""
-        SELECT sk.skill_name,
-               COUNT(DISTINCT ss.student_id) AS students_with_skill
-        FROM skills sk
-        LEFT JOIN student_skills ss ON sk.skill_id = ss.skill_id
-        GROUP BY sk.skill_id, sk.skill_name
-        ORDER BY students_with_skill DESC, sk.skill_name
-    """)
 
     st.download_button(
-        "⬇️ Download Skill Report",
-        skills_report.to_csv(index=False).encode("utf-8"),
-        "skill_report.csv",
+        "Download Skills Report",
+        st.session_state.skills.to_csv(index=False),
+        "skills_report.csv",
         "text/csv"
     )
 
-    if not placements.empty:
-        dept_report = (
-            placements.groupby("department")
-            .agg(
-                Students_Placed=("student_id", "nunique"),
-                Average_Package_LPA=("package_lpa", "mean"),
-                Median_Package_LPA=("package_lpa", "median"),
-                Highest_Package_LPA=("package_lpa", "max")
-            )
-            .reset_index()
-            .round(2)
-        )
+    st.write("### Overall Summary")
 
-        st.download_button(
-            "⬇️ Download Department and Package Report",
-            dept_report.to_csv(index=False).encode("utf-8"),
-            "department_package_report.csv",
-            "text/csv"
-        )
+    summary = pd.DataFrame({
+        "Metric": [
+            "Total Students",
+            "Eligible Students",
+            "Placed Students",
+            "Placement Rate (%)"
+        ],
+        "Value": [
+            len(st.session_state.students),
+            int(st.session_state.students["eligible"].sum()),
+            len(st.session_state.placements),
+            round(placement_rate, 2)
+        ]
+    })
 
-        st.subheader("Department and Package Summary")
-        st.dataframe(
-            dept_report,
-            use_container_width=True,
-            hide_index=True
-        )
+    st.dataframe(summary, use_container_width=True)
 
-# =====================================================
-# 16. FOOTER
-# =====================================================
-st.sidebar.divider()
-st.sidebar.caption("Student Placement Data Analysis System")
-st.sidebar.caption("Academic Project • PlacementIQ")
+# ---------------- FOOTER ----------------
+st.divider()
+st.caption(
+    "PlacementIQ | Student Placement Data Analysis System | "
+    "Academic Demonstration Project | Fictional Sample Data"
+)
